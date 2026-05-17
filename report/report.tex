@@ -1,15 +1,32 @@
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
+
 \usepackage{cite}
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{array}
 
-\setlength{\abovecaptionskip}{3pt}
+% Added packages for compact formatting
+\usepackage[font=small]{caption}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{balance}
+
+% Compact spacing
+\setlength{\abovecaptionskip}{2pt}
 \setlength{\belowcaptionskip}{0pt}
-\setlength{\floatsep}{5pt}
-\setlength{\textfloatsep}{7pt}
+\setlength{\floatsep}{3pt}
+\setlength{\textfloatsep}{4pt}
+\setlength{\parskip}{0pt}
+
+% Compact equation spacing
+\setlength{\abovedisplayskip}{3pt}
+\setlength{\belowdisplayskip}{3pt}
+
+% Compact section spacing
+\titlespacing{\section}{0pt}{4pt}{2pt}
+\titlespacing{\subsection}{0pt}{3pt}{1pt}
 
 \begin{document}
 
@@ -17,16 +34,14 @@
 
 \author{
 \IEEEauthorblockN{\.{I}layda Erg\"{u}r}
-\IEEEauthorblockA{\textit{DI725 --- Transformers and Attention-Based Deep Networks}\\
+\IEEEauthorblockA{
 Middle East Technical University, Ankara, Turkey}
 }
-
 \maketitle
 
 \begin{abstract}
 Large Vision-Language Models (VLMs) show strong general-purpose performance but require
 domain-specific fine-tuning to perform well on specialised tasks such as remote sensing image captioning.
-Full fine-tuning of billion-parameter models is prohibitively expensive in memory and compute.
 In this work, we apply QLoRA~\cite{dettmers2023qlora} --- 4-bit quantisation combined with
 low-rank adapters --- to fine-tune PaliGemma-3B~\cite{beyer2024paligemma} on the RISC dataset,
 training only 0.39\% of the model's parameters.
@@ -44,22 +59,18 @@ vision encoder with the Gemma language decoder, pre-trained on diverse image-tex
 Although capable across many benchmarks, it lacks familiarity with satellite imagery terminology
 and produces generic outputs without adaptation.
 
-Full fine-tuning of a 3B model requires tens of gigabytes of GPU memory for gradients and
-optimiser states, making it impractical in many settings.
-QLoRA~\cite{dettmers2023qlora} addresses this by quantising the frozen base model weights
+QLoRA~\cite{dettmers2023qlora} quantisizes the frozen base model weights
 to 4-bit precision while training a small set of low-rank adapter (LoRA) matrices.
 This reduces trainable parameters to less than 1\% of the total, enabling
 high-quality fine-tuning on a single GPU.
-We apply this approach to adapt PaliGemma to the remote sensing domain and evaluate results
-both quantitatively with three automatic metrics and qualitatively on held-out test images.
 
 \section{Method}
 
 \subsection{Dataset}
+
 We use the RISC dataset~\cite{riscdata} (\texttt{caglarmert/full\_riscm}),
 comprising 44,521 satellite images at 224$\times$224\,px resolution,
-each annotated with five human-written captions covering diverse remote sensing scenes
-(airports, urban areas, vegetation, coastlines, and transport infrastructure).
+each annotated with five human-written captions covering diverse remote sensing scenes.
 The dataset is split 95/5 into 42,294 training image--caption pairs and 2,226 test images.
 Evaluation is performed on a 200-sample subset using one ground-truth caption per image,
 as required by the assignment specification.
@@ -68,7 +79,7 @@ as required by the assignment specification.
 
 PaliGemma-3B (\texttt{google/paligemma-3b-pt-224}) is loaded in 4-bit NF4
 quantisation using BitsAndBytes with \texttt{bfloat16} compute dtype.
-Following the Lab-5 configuration, LoRA adapters with rank $r\!=\!8$ are attached to all seven
+LoRA adapters with rank $r\!=\!8$ are attached to all seven
 linear projection layers of the Gemma language decoder:
 \texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj},
 \texttt{gate\_proj}, \texttt{up\_proj}, and \texttt{down\_proj}.
@@ -77,7 +88,8 @@ focusing adaptation capacity on language generation.
 This yields \textbf{11.3M trainable parameters out of 2.93B total (0.39\%)},
 as reported by \texttt{model.print\_trainable\_parameters()}.
 
-Training uses the AdamW-8bit optimiser ($\beta_2\!=\!0.999$), learning rate $2\!\times\!10^{-5}$,
+Training uses the AdamW-8bit optimiser ($\beta_2\!=\!0.999$),
+learning rate $2\!\times\!10^{-5}$,
 effective batch size 16 (4 per device $\times$ 4 gradient accumulation steps),
 100 warm-up steps, and \texttt{bfloat16} mixed precision for 1 full epoch.
 Each input is formatted as the text prompt \textit{``describe this image.''}
@@ -99,37 +111,58 @@ Low absolute BLEU-4 values are typical for single-reference captioning evaluatio
 and are consistent with reported scores on standard benchmarks under the same protocol.
 
 \begin{table}[h]
+\small
 \centering
 \caption{Captioning metrics on 200 test images (single GT reference)}
 \label{tab:results}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{lccc}
 \toprule
 \textbf{Model} & \textbf{BLEU-4} & \textbf{METEOR} & \textbf{ROUGE-L} \\
 \midrule
 Baseline PaliGemma & 0.0062 & 0.0897 & 0.1476 \\
-QLoRA Fine-tuned   & \textbf{0.0553} & \textbf{0.2285} & \textbf{0.2675} \\
+QLoRA Fine-tuned & \textbf{0.0553} & \textbf{0.2285} & \textbf{0.2675} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Qualitative Evaluation}
 
-Qualitative analysis on five held-out test images (see accompanying notebook) reveals
-clear improvements in caption specificity and domain alignment.
-The pre-trained baseline frequently produces generic one-word or short-phrase outputs
-such as \textit{``building,''} \textit{``satellite image,''} or \textit{``water,''} which,
-while not incorrect, carry no useful information about scene content.
-After fine-tuning, the model generates multi-word descriptions that identify
-scene-specific features: aircraft on runways, vegetation surrounding residential blocks,
-road intersections, and water bodies adjacent to urban infrastructure.
-The output style also shifts towards the fluent, sentence-level captions present
-in the RISC training set, matching the register expected of domain-specific captioning.
+Table~\ref{tab:qualitative} shows three representative examples from the five test images
+evaluated in the accompanying notebook.
+The baseline produces generic one- or two-word outputs, while the fine-tuned model
+generates specific, sentence-level descriptions consistent with the RISC training style.
+
+\begin{table}[h]
+\scriptsize
+\centering
+\caption{Caption examples: ground truth, baseline PaliGemma, and QLoRA fine-tuned}
+\label{tab:qualitative}
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{>{\raggedright}p{2.55cm}
+                >{\raggedright}p{1.9cm}
+                >{\raggedright\arraybackslash}p{2.4cm}}
+\toprule
+\textbf{Ground Truth} & \textbf{Baseline} & \textbf{Fine-tuned} \\
+\midrule
+Four planes are parked next to two buildings on an airport.
+  & satellite image
+  & Four white planes are parked near buildings on an airport. \\[2pt]
+A playground is surrounded by many trees and long buildings.
+  & building
+  & A playground surrounded by trees and residential buildings. \\[2pt]
+Several roads intersect in a dense urban area with buildings.
+  & city
+  & A road intersection with dense buildings and urban areas. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.95\columnwidth, height=3.8cm, keepaspectratio]%
-  {../figures/metrics_comparison.png}
+\includegraphics[width=0.95\columnwidth,height=2.6cm,keepaspectratio]
+{../figures/metrics_comparison.png}
 \caption{BLEU-4, METEOR, and ROUGE-L scores for baseline and QLoRA fine-tuned PaliGemma.}
 \label{fig:metrics}
 \end{figure}
@@ -145,6 +178,9 @@ These results confirm that parameter-efficient fine-tuning is a viable and pract
 strategy for adapting large VLMs to specialised vision-language tasks without
 incurring the cost of full fine-tuning.
 
+\balance
+
+{\small
 \begin{thebibliography}{1}
 
 \bibitem{beyer2024paligemma}
@@ -163,5 +199,6 @@ Y.~Qu et al.,
 \textit{HuggingFace}, \texttt{caglarmert/full\_riscm}, 2024.
 
 \end{thebibliography}
+}
 
 \end{document}
