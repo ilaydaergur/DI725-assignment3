@@ -4,13 +4,12 @@
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
 
-% Tighten spacing globally
 \setlength{\abovecaptionskip}{3pt}
 \setlength{\belowcaptionskip}{0pt}
-\setlength{\floatsep}{4pt}
-\setlength{\textfloatsep}{6pt}
-\setlength{\intextsep}{4pt}
+\setlength{\floatsep}{5pt}
+\setlength{\textfloatsep}{7pt}
 
 \begin{document}
 
@@ -25,44 +24,85 @@ Middle East Technical University, Ankara, Turkey}
 \maketitle
 
 \begin{abstract}
-We apply QLoRA to fine-tune PaliGemma-3B on the RISC remote sensing image captioning dataset,
-training only 0.39\% of model parameters.
-Fine-tuning yields substantial gains over the pre-trained baseline:
-BLEU-4 improves from 0.0062 to 0.0553, METEOR from 0.0897 to 0.2285,
+Large Vision-Language Models (VLMs) show strong general-purpose performance but require
+domain-specific fine-tuning to perform well on specialised tasks such as remote sensing image captioning.
+Full fine-tuning of billion-parameter models is prohibitively expensive in memory and compute.
+In this work, we apply QLoRA~\cite{dettmers2023qlora} --- 4-bit quantisation combined with
+low-rank adapters --- to fine-tune PaliGemma-3B~\cite{beyer2024paligemma} on the RISC dataset,
+training only 0.39\% of the model's parameters.
+Our approach achieves substantial gains over the pre-trained baseline:
+BLEU-4 improves from 0.0062 to 0.0553 ($\times$9), METEOR from 0.0897 to 0.2285,
 and ROUGE-L from 0.1476 to 0.2675.
 \end{abstract}
 
 \section{Introduction}
 
-PaliGemma~\cite{beyer2024paligemma} is a 3B-parameter VLM combining the SigLIP vision encoder
-with the Gemma language decoder.
-While capable in general domains, it underperforms on specialised tasks without adaptation.
-Full fine-tuning is memory-prohibitive, so we apply QLoRA~\cite{dettmers2023qlora}
---- 4-bit quantisation combined with low-rank adapter weights ---
-to efficiently adapt PaliGemma to remote sensing image captioning.
+Remote sensing image captioning is a challenging vision-language task requiring models to
+describe satellite imagery using precise, domain-specific vocabulary.
+PaliGemma~\cite{beyer2024paligemma} is a 3B-parameter VLM combining the SigLIP
+vision encoder with the Gemma language decoder, pre-trained on diverse image-text pairs.
+Although capable across many benchmarks, it lacks familiarity with satellite imagery terminology
+and produces generic outputs without adaptation.
+
+Full fine-tuning of a 3B model requires tens of gigabytes of GPU memory for gradients and
+optimiser states, making it impractical in many settings.
+QLoRA~\cite{dettmers2023qlora} addresses this by quantising the frozen base model weights
+to 4-bit precision while training a small set of low-rank adapter (LoRA) matrices.
+This reduces trainable parameters to less than 1\% of the total, enabling
+high-quality fine-tuning on a single GPU.
+We apply this approach to adapt PaliGemma to the remote sensing domain and evaluate results
+both quantitatively with three automatic metrics and qualitatively on held-out test images.
 
 \section{Method}
 
 \subsection{Dataset}
-We use the RISC dataset~\cite{riscdata} (\texttt{caglarmert/full\_riscm}):
-44,521 satellite images (224$\times$224\,px) with five captions each,
-split 95/5 into 42,294 training pairs and 2,226 test images.
+We use the RISC dataset~\cite{riscdata} (\texttt{caglarmert/full\_riscm}),
+comprising 44,521 satellite images at 224$\times$224\,px resolution,
+each annotated with five human-written captions covering diverse remote sensing scenes
+(airports, urban areas, vegetation, coastlines, and transport infrastructure).
+The dataset is split 95/5 into 42,294 training image--caption pairs and 2,226 test images.
+Evaluation is performed on a 200-sample subset using one ground-truth caption per image,
+as required by the assignment specification.
 
-\subsection{Model and QLoRA Configuration}
-PaliGemma-3B is loaded in 4-bit NF4 quantisation via BitsAndBytes.
-LoRA adapters ($r\!=\!8$) are attached to all seven linear projection layers of the Gemma decoder
-(\texttt{q, k, v, o, gate, up, down\_proj}), yielding \textbf{11.3M / 2.93B trainable parameters (0.39\%)}.
-The SigLIP encoder is frozen throughout.
-Training uses AdamW-8bit, learning rate $2\!\times\!10^{-5}$,
-effective batch size 16, and 1 epoch over the full training set.
+\subsection{Model and QLoRA Setup}
 
-\section{Results}
+PaliGemma-3B (\texttt{google/paligemma-3b-pt-224}) is loaded in 4-bit NF4
+quantisation using BitsAndBytes with \texttt{bfloat16} compute dtype.
+Following the Lab-5 configuration, LoRA adapters with rank $r\!=\!8$ are attached to all seven
+linear projection layers of the Gemma language decoder:
+\texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj},
+\texttt{gate\_proj}, \texttt{up\_proj}, and \texttt{down\_proj}.
+The SigLIP vision encoder and the multi-modal projector are frozen throughout,
+focusing adaptation capacity on language generation.
+This yields \textbf{11.3M trainable parameters out of 2.93B total (0.39\%)},
+as reported by \texttt{model.print\_trainable\_parameters()}.
+
+Training uses the AdamW-8bit optimiser ($\beta_2\!=\!0.999$), learning rate $2\!\times\!10^{-5}$,
+effective batch size 16 (4 per device $\times$ 4 gradient accumulation steps),
+100 warm-up steps, and \texttt{bfloat16} mixed precision for 1 full epoch.
+Each input is formatted as the text prompt \textit{``describe this image.''}
+paired with the satellite image; the corresponding caption serves as the generation target.
+The processor produces input tokens with image embeddings prepended,
+and cross-entropy loss is computed only on caption tokens.
+
+\section{Results and Discussion}
+
+\subsection{Quantitative Evaluation}
+
+Table~\ref{tab:results} and Fig.~\ref{fig:metrics} report BLEU-4, METEOR, and ROUGE-L
+on 200 held-out test images.
+All three metrics improve consistently after QLoRA fine-tuning.
+BLEU-4 increases nearly 9$\times$, from 0.0062 to 0.0553.
+METEOR and ROUGE-L, which better account for synonym overlap and recall,
+both roughly double (0.0897$\to$0.2285 and 0.1476$\to$0.2675, respectively).
+Low absolute BLEU-4 values are typical for single-reference captioning evaluation
+and are consistent with reported scores on standard benchmarks under the same protocol.
 
 \begin{table}[h]
 \centering
 \caption{Captioning metrics on 200 test images (single GT reference)}
 \label{tab:results}
-\setlength{\tabcolsep}{5pt}
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccc}
 \toprule
 \textbf{Model} & \textbf{BLEU-4} & \textbf{METEOR} & \textbf{ROUGE-L} \\
@@ -73,45 +113,53 @@ QLoRA Fine-tuned   & \textbf{0.0553} & \textbf{0.2285} & \textbf{0.2675} \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:results} and Fig.~\ref{fig:metrics} show consistent improvement across all metrics.
-BLEU-4 increases nearly 9$\times$; METEOR and ROUGE-L roughly double.
-Low absolute BLEU-4 values are expected for single-reference evaluation.
-Fig.~\ref{fig:examples} shows qualitative comparisons: the baseline generates generic descriptions,
-while the fine-tuned model produces domain-specific captions
-(e.g., runways, vegetation patterns, road networks).
+\subsection{Qualitative Evaluation}
+
+Qualitative analysis on five held-out test images (see accompanying notebook) reveals
+clear improvements in caption specificity and domain alignment.
+The pre-trained baseline frequently produces generic one-word or short-phrase outputs
+such as \textit{``building,''} \textit{``satellite image,''} or \textit{``water,''} which,
+while not incorrect, carry no useful information about scene content.
+After fine-tuning, the model generates multi-word descriptions that identify
+scene-specific features: aircraft on runways, vegetation surrounding residential blocks,
+road intersections, and water bodies adjacent to urban infrastructure.
+The output style also shifts towards the fluent, sentence-level captions present
+in the RISC training set, matching the register expected of domain-specific captioning.
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=\columnwidth, height=3.2cm, keepaspectratio]%
+\includegraphics[width=0.95\columnwidth, height=3.8cm, keepaspectratio]%
   {../figures/metrics_comparison.png}
-\caption{BLEU-4, METEOR, ROUGE-L before and after QLoRA fine-tuning.}
+\caption{BLEU-4, METEOR, and ROUGE-L scores for baseline and QLoRA fine-tuned PaliGemma.}
 \label{fig:metrics}
 \end{figure}
 
-\begin{figure}[h]
-\centering
-\includegraphics[width=\columnwidth, height=3.8cm, keepaspectratio]%
-  {../figures/results_visualization.png}
-\caption{Ground truth, baseline, and fine-tuned captions for five test images.}
-\label{fig:examples}
-\end{figure}
-
 \section{Conclusion}
-QLoRA enables effective domain adaptation of PaliGemma-3B with only 0.39\% trainable parameters,
-yielding significant quantitative and qualitative improvements on remote sensing image captioning.
+
+We demonstrated that QLoRA enables effective domain adaptation of PaliGemma-3B with only
+0.39\% trainable parameters, using a single A100 GPU for one training epoch.
+Fine-tuning on the full RISC dataset yields large quantitative improvements across
+BLEU-4, METEOR, and ROUGE-L, and produces qualitatively richer, domain-specific captions
+for remote sensing imagery.
+These results confirm that parameter-efficient fine-tuning is a viable and practical
+strategy for adapting large VLMs to specialised vision-language tasks without
+incurring the cost of full fine-tuning.
 
 \begin{thebibliography}{1}
 
 \bibitem{beyer2024paligemma}
-L.~Beyer et al., ``PaliGemma: A versatile 3B VLM for transfer,''
-\textit{arXiv:2407.07726}, 2024.
+L.~Beyer et al.,
+``PaliGemma: A versatile 3B VLM for transfer,''
+\textit{arXiv preprint arXiv:2407.07726}, 2024.
 
 \bibitem{dettmers2023qlora}
-T.~Dettmers et al., ``QLoRA: Efficient finetuning of quantized LLMs,''
-\textit{NeurIPS}, 2023.
+T.~Dettmers, A.~Pagnoni, A.~Holtzman, and L.~Zettlemoyer,
+``QLoRA: Efficient finetuning of quantized LLMs,''
+in \textit{NeurIPS}, 2023.
 
 \bibitem{riscdata}
-Y.~Qu et al., ``RISC: Remote sensing image captioning dataset,''
+Y.~Qu et al.,
+``RISC: Remote sensing image captioning dataset,''
 \textit{HuggingFace}, \texttt{caglarmert/full\_riscm}, 2024.
 
 \end{thebibliography}
