@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Archives
+*.zip
+
+# Course materials (not part of submission)
+DI725_Lab_5.ipynb
+DI725_Lab_5_PEFT_Slides.pdf
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
