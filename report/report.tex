@@ -128,36 +128,18 @@ QLoRA Fine-tuned & \textbf{0.0553} & \textbf{0.2285} & \textbf{0.2675} \\
 
 \subsection{Qualitative Evaluation}
 
-Table~\ref{tab:qualitative} shows three representative examples from the five test images
-evaluated in the accompanying notebook.
-The baseline produces generic one- or two-word outputs, while the fine-tuned model
+Fig.~\ref{fig:examples} shows five held-out test images with their ground-truth caption,
+baseline output, and QLoRA fine-tuned output.
+The baseline produces generic one- or two-word responses, while the fine-tuned model
 generates specific, sentence-level descriptions consistent with the RISC training style.
 
-\begin{table}[h]
-\scriptsize
+\begin{figure}[h]
 \centering
-\caption{Caption examples: ground truth, baseline PaliGemma, and QLoRA fine-tuned}
-\label{tab:qualitative}
-\setlength{\tabcolsep}{2pt}
-\renewcommand{\arraystretch}{1.15}
-\begin{tabular}{>{\raggedright}p{2.55cm}
-                >{\raggedright}p{1.9cm}
-                >{\raggedright\arraybackslash}p{2.4cm}}
-\toprule
-\textbf{Ground Truth} & \textbf{Baseline} & \textbf{Fine-tuned} \\
-\midrule
-Four planes are parked next to two buildings on an airport.
-  & satellite image
-  & Four white planes are parked near buildings on an airport. \\[2pt]
-A playground is surrounded by many trees and long buildings.
-  & building
-  & A playground surrounded by trees and residential buildings. \\[2pt]
-Several roads intersect in a dense urban area with buildings.
-  & city
-  & A road intersection with dense buildings and urban areas. \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth,height=4.2cm,keepaspectratio]%
+  {../figures/results_visualization.png}
+\caption{Five test images with ground truth, baseline PaliGemma, and QLoRA fine-tuned captions.}
+\label{fig:examples}
+\end{figure}
 
 \begin{figure}[h]
 \centering
